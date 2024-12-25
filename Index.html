@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Management</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    table, th, td {
+      border: 1px solid black;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+    }
+    #dataForm, #passkeyForm {
+      margin-bottom: 20px;
+    }
+    #searchInput {
+      margin-bottom: 20px;
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Data Management with AES Encryption</h1>
+
+  <!-- Passkey Form -->
+  <form id="passkeyForm">
+    <label for="passkey">🔑 Passkey:</label><br>
+    <input type="password" id="passkey" name="passkey">
+    <button type="button" onclick="validatePasskey()">Submit Passkey</button>
+    <button type="button" onclick="editPasskey()">Edit Passkey</button><br><br>
+  </form>
+
+  <hr>
+
+  <!-- Input Form -->
+  <form id="dataForm">
+    <input type="hidden" id="editingIndex">
+    <label for="website">🌏 Website:</label><br>
+    <input type="text" id="website" name="website"><br><br>
+
+    <label for="noHp">📞 No HP:</label><br>
+    <input type="text" id="noHp" name="noHp"><br><br>
+
+    <label for="email">✉️ Email:</label><br>
+    <input type="email" id="email" name="email"><br><br>
+
+    <label for="password">🔒 Password:</label><br>
+    <input type="password" id="password" name="password">
+    <button type="button" onclick="togglePasswordVisibility('password')">Show</button><br><br>
+
+    <label for="catatan">📝 Catatan:</label><br>
+    <textarea id="catatan" name="catatan"></textarea><br><br>
+
+    <button type="button" onclick="saveData()">Simpan</button>
+    <button type="button" id="cancelEditButton" class="hidden" onclick="cancelEdit()">Batal Edit</button>
+  </form>
+
+  <!-- Search -->
+  <input type="text" id="searchInput" placeholder="Cari data..." onkeyup="searchData()">
+
+  <!-- Data Table -->
+  <table id="dataTable">
+    <thead>
+      <tr>
+        <th>Website</th>
+        <th>No HP</th>
+        <th>Email</th>
+        <th>Password</th>
+        <th>Catatan</th>
+        <th>Aksi</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <hr>
+
+  <!-- Export/Import -->
+  <button onclick="exportData()">Export Data</button>
+  <input type="file" id="importFile" accept=".json" onchange="importData(event)">
+
+  <script>
+    const storageKey = 'dataStorage';
+    let decryptedData = [];
+    let passkey = getCookie('passkey') || '';
+
+    function togglePasswordVisibility(id) {
+      const field = document.getElementById(id);
+      field.type = field.type === 'password' ? 'text' : 'password';
+    }
+
+    function saveData() {
+      const website = document.getElementById('website').value;
+      const noHp = document.getElementById('noHp').value;
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const catatan = document.getElementById('catatan').value;
+
+      const newData = { website, noHp, email, password, catatan };
+      const editingIndex = document.getElementById('editingIndex').value;
+
+      if (editingIndex) {
+        decryptedData[editingIndex] = newData;
+        cancelEdit();
+      } else {
+        decryptedData.unshift(newData);
+      }
+
+      updateTable();
+      saveToLocalStorage();
+      document.getElementById('dataForm').reset();
+    }
+
+    function updateTable() {
+      const tbody = document.querySelector('#dataTable tbody');
+      tbody.innerHTML = '';
+      decryptedData.forEach((data, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${passkey ? data.website : encryptData(data.website)}</td>
+          <td>${passkey ? data.noHp : encryptData(data.noHp)}</td>
+          <td>${passkey ? data.email : encryptData(data.email)}</td>
+          <td>
+ <span id="password${index}" style="cursor: pointer;">****</span>
+            <button onclick="toggleTablePassword(${index})">Show</button>
+          </td>
+          <td>${passkey ? data.catatan : encryptData(data.catatan)}</td>
+          <td>
+            ${passkey ? `
+            <button onclick="editData(${index})">Edit</button>
+            <button onclick="deleteData(${index})">Hapus</button>` : ''}
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function toggleTablePassword(index) {
+      const passwordElement = document.getElementById(`password${index}`);
+      const password = decryptedData[index].password;
+      if (passwordElement.innerText === '****') {
+        passwordElement.innerText = password;
+      } else {
+        passwordElement.innerText = '****';
+      }
+    }
+
+    function editData(index) {
+      const data = decryptedData[index];
+      document.getElementById('website').value = data.website;
+      document.getElementById('noHp').value = data.noHp;
+      document.getElementById('email').value = data.email;
+      document.getElementById('password').value = data.password;
+      document.getElementById('catatan').value = data.catatan;
+      document.getElementById('editingIndex').value = index;
+      document.getElementById('cancelEditButton').classList.remove('hidden');
+    }
+
+    function cancelEdit() {
+      document.getElementById('dataForm').reset();
+      document.getElementById('editingIndex').value = '';
+      document.getElementById('cancelEditButton').classList.add('hidden');
+    }
+
+    function deleteData(index) {
+      decryptedData.splice(index, 1);
+      updateTable();
+      saveToLocalStorage();
+    }
+
+    function saveToLocalStorage() {
+      if (!passkey) {
+        alert('Passkey belum diset!');
+        return;
+      }
+      const encryptedData = CryptoJS.AES.encrypt(JSON.stringify(decryptedData), passkey).toString();
+      localStorage.setItem(storageKey, encryptedData);
+    }
+
+    function loadFromLocalStorage() {
+      if (!passkey) return;
+      const encryptedData = localStorage.getItem(storageKey);
+      if (encryptedData) {
+        const bytes = CryptoJS.AES.decrypt(encryptedData, passkey);
+        try {
+          decryptedData = JSON.parse(bytes.toString(CryptoJS.enc.Utf8)) || [];
+          updateTable();
+        } catch {
+          alert('Passkey salah!');
+        }
+      }
+    }
+
+    function validatePasskey() {
+      const inputPasskey = document.getElementById('passkey').value;
+      if (!inputPasskey) {
+        alert('Passkey wajib diisi!');
+        return;
+      }
+      passkey = inputPasskey;
+      setCookie('passkey', passkey, 7);
+      loadFromLocalStorage();
+    }
+
+    function editPasskey() {
+      const newPasskey = prompt('Masukkan passkey baru:');
+      if (newPasskey) {
+        passkey = newPasskey;
+        setCookie('passkey', passkey, 7);
+        saveToLocalStorage();
+      }
+    }
+
+    function exportData() {
+      if (!passkey) {
+        alert('Passkey belum diset!');
+        return;
+      }
+      const encryptedData = localStorage.getItem(storageKey);
+      const blob = new Blob([encryptedData], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${passkey}.json`;
+      link.click();
+    }
+
+    function importData(event) {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const encryptedData = e.target.result;
+        localStorage.setItem(storageKey, encryptedData);
+        loadFromLocalStorage();
+      };
+      reader.readAsText(file);
+    }
+
+    function searchData() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      const filteredData = decryptedData.filter(data =>
+        Object.values(data).some(value =>
+          value && value.toLowerCase().includes(query)
+        )
+      );
+      const tbody = document.querySelector('#dataTable tbody');
+      tbody.innerHTML = '';
+      filteredData.forEach((data, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${passkey ? data.website : encryptData(data.website)}</td>
+          <td>${passkey ? data.noHp : encryptData(data.noHp)}</td>
+          <td>${passkey ? data.email : encryptData(data.email)}</td>
+          <td>****</td>
+          <td>${passkey ? data.catatan : encryptData(data.catatan)}</td>
+          <td>
+            ${passkey ? `
+            <button onclick="editData(${index})">Edit</button>
+            <button onclick="deleteData(${index})">Hapus</button>` : ''}
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function setCookie(name, value, days) {
+      const d = new Date();
+      d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+      document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/`;
+    }
+
+    function getCookie(name) {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.startsWith(`${name}=`)) {
+          return cookie.substring(name.length + 1);
+        }
+      }
+      return '';
+    }
+
+    function encryptData(data) {
+      return CryptoJS.AES.encrypt(data || '', 'temporaryKey').toString();
+    }
+
+    loadFromLocalStorage();
+  </script>
+</body>
+  </html>
